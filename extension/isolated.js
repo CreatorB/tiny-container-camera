@@ -19,6 +19,7 @@ window.addEventListener('message', (e) => {
   if (e.source !== window || !e.data || e.data.__tcc !== 'to-isolated') return;
   if (e.data.type === 'start') start();
   else if (e.data.type === 'stop') stop();
+  else if (e.data.type === 'log') browser.runtime.sendMessage({ type: 'log', text: String(e.data.text) });
 });
 
 function start() {

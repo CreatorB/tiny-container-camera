@@ -3,17 +3,13 @@
 (() => {
   'use strict';
 
-  const md = navigator.mediaDevices;
-  if (!md || md.__tccPatched) return;
-  md.__tccPatched = true;
+  if (window.__tccInstalled) return;
+  window.__tccInstalled = true;
 
   const DEVICE_ID = 'tiny-container-camera';
   const GROUP_ID = 'tiny-container-camera-group';
   const LABEL = 'Android Camera (Tiny Container)';
   const FPS = 30;
-
-  const origGetUserMedia = md.getUserMedia.bind(md);
-  const origEnumerateDevices = md.enumerateDevices.bind(md);
 
   let canvas = null;
   let ctx = null;
@@ -24,8 +20,23 @@
   let gotFrame = false;
   let statusText = 'Waiting for camera...';
 
-  function send(type) {
-    window.postMessage({ __tcc: 'to-isolated', type }, '*');
+  function send(type, extra) {
+    window.postMessage({ __tcc: 'to-isolated', type, ...extra }, '*');
+  }
+
+  function log(...parts) {
+    const text = parts
+      .map((p) => {
+        if (typeof p === 'string') return p;
+        if (p instanceof Error || (p && p.name && p.message)) return p.name + ': ' + p.message;
+        try {
+          return JSON.stringify(p);
+        } catch (_) {
+          return String(p);
+        }
+      })
+      .join(' ');
+    send('log', { text: location.host + location.pathname + ' | ' + text });
   }
 
   window.addEventListener('message', (e) => {
@@ -120,26 +131,77 @@
     return track;
   }
 
-  md.getUserMedia = async function (constraints) {
-    if (!constraints || !constraints.video) return origGetUserMedia(constraints);
-    const stream = constraints.audio
-      ? await origGetUserMedia({ audio: constraints.audio })
-      : new MediaStream();
-    stream.addTrack(makeTrack());
-    return stream;
-  };
+  function fakeDevice() {
+    const info = { deviceId: DEVICE_ID, groupId: GROUP_ID, kind: 'videoinput', label: LABEL };
+    return { ...info, toJSON: () => info };
+  }
 
-  md.enumerateDevices = async function () {
-    const devices = (await origEnumerateDevices()).filter((d) => d.kind !== 'videoinput');
-    devices.push({
-      deviceId: DEVICE_ID,
-      groupId: GROUP_ID,
-      kind: 'videoinput',
-      label: LABEL,
-      toJSON() {
-        return { deviceId: DEVICE_ID, groupId: GROUP_ID, kind: 'videoinput', label: LABEL };
-      },
-    });
-    return devices;
-  };
+  // Patches a window (the page or a same-origin iframe) to use the shared
+  // virtual camera. Sites sometimes take getUserMedia from a fresh iframe to
+  // get an unpatched copy, so iframes are patched as soon as they are touched.
+  function patchWindow(win) {
+    let md;
+    try {
+      md = win.navigator.mediaDevices;
+    } catch (_) {
+      return;
+    }
+    if (!md || md.__tccPatched) return;
+    md.__tccPatched = true;
+
+    const origGetUserMedia = md.getUserMedia.bind(md);
+    const origEnumerateDevices = md.enumerateDevices.bind(md);
+
+    md.getUserMedia = async function (constraints) {
+      log('getUserMedia', constraints);
+      if (!constraints || !constraints.video) return origGetUserMedia(constraints);
+      try {
+        const stream = constraints.audio
+          ? await origGetUserMedia({ audio: constraints.audio })
+          : new MediaStream();
+        stream.addTrack(makeTrack());
+        log('getUserMedia ok', stream.getTracks().map((t) => t.kind + ':' + t.label));
+        return stream;
+      } catch (err) {
+        log('getUserMedia failed', err);
+        throw err;
+      }
+    };
+
+    md.enumerateDevices = async function () {
+      const devices = (await origEnumerateDevices()).filter((d) => d.kind !== 'videoinput');
+      devices.push(fakeDevice());
+      log('enumerateDevices', devices.map((d) => d.kind + ':' + d.label));
+      return devices;
+    };
+
+    const perms = win.navigator.permissions;
+    if (perms && perms.query) {
+      const origQuery = perms.query.bind(perms);
+      perms.query = async function (desc) {
+        const status = await origQuery(desc);
+        if (desc && desc.name === 'camera') {
+          log('permissions.query camera, real state:', status.state);
+          Object.defineProperty(status, 'state', { get: () => 'granted' });
+        }
+        return status;
+      };
+    }
+
+    const iframeProto = win.HTMLIFrameElement && win.HTMLIFrameElement.prototype;
+    const desc = iframeProto && Object.getOwnPropertyDescriptor(iframeProto, 'contentWindow');
+    if (desc && desc.get) {
+      Object.defineProperty(iframeProto, 'contentWindow', {
+        ...desc,
+        get() {
+          const child = desc.get.call(this);
+          if (child) patchWindow(child);
+          return child;
+        },
+      });
+    }
+  }
+
+  patchWindow(window);
+  log('installed');
 })();

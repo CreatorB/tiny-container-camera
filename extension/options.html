@@ -2,16 +2,19 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <title>Tiny Container Camera</title>
   <style>
-    body { font: 14px sans-serif; padding: 12px; }
+    body { font: 14px sans-serif; padding: 12px; max-width: 560px; }
     input { width: 100%; box-sizing: border-box; padding: 4px; }
+    #access { margin: 8px 0; font-weight: bold; }
     #msg { margin-top: 8px; color: #555; }
   </style>
 </head>
 <body>
   <label for="url">MJPEG stream URL (IP Webcam):</label>
   <input id="url" type="url" placeholder="http://127.0.0.1:8080/video">
-  <p><button id="save">Save</button></p>
+  <div id="access"></div>
+  <p><button id="save">Save and grant access</button></p>
   <div id="msg"></div>
   <script src="options.js"></script>
 </body>

@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Tiny Container Camera",
-  "version": "0.1.1",
-  "description": "Use the Android host camera (via an MJPEG stream such as IP Webcam) as a webcam in Microsoft Teams web inside Tiny Computer / proot.",
+  "version": "0.1.2",
+  "description": "Use the Android host camera (via an MJPEG stream such as IP Webcam) as a webcam on any website (Teams, Meet, Zoom...) inside Tiny Computer / proot.",
   "browser_specific_settings": {
     "gecko": {
       "id": "tiny-container-camera@creatorb",
       "strict_min_version": "128.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },
@@ -23,7 +25,9 @@
     "storage"
   ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "options_ui": {
     "page": "options.html"
@@ -31,24 +35,26 @@
   "content_scripts": [
     {
       "matches": [
-        "https://teams.microsoft.com/*",
-        "https://teams.live.com/*",
-        "https://teams.cloud.microsoft/*",
-        "http://127.0.0.1/tcc-test.html"
+        "https://*/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
       ],
-      "js": ["main.js"],
+      "js": [
+        "main.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "world": "MAIN"
     },
     {
       "matches": [
-        "https://teams.microsoft.com/*",
-        "https://teams.live.com/*",
-        "https://teams.cloud.microsoft/*",
-        "http://127.0.0.1/tcc-test.html"
+        "https://*/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
       ],
-      "js": ["isolated.js"],
+      "js": [
+        "isolated.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     }

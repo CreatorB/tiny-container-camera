@@ -4,6 +4,26 @@
 
 const DEFAULT_URL = 'http://127.0.0.1:8080/video';
 const RECONNECT_MS = 2000;
+// Debug builds set this to a local endpoint that collects page logs.
+const LOG_URL = '';
+
+browser.runtime.onMessage.addListener((msg) => {
+  if (msg.type !== 'log') return;
+  console.debug('[tiny-container-camera]', msg.text);
+  if (LOG_URL) fetch(LOG_URL, { method: 'POST', body: msg.text }).catch(() => {});
+});
+
+// MV3 host permissions are not always granted at install time (e.g. when
+// installed from a file or by policy), so ask for them on the options page.
+async function hasAccess(url) {
+  // Match patterns have no port: http://127.0.0.1/* covers every port.
+  const u = new URL(url);
+  return browser.permissions.contains({ origins: [u.protocol + '//' + u.hostname + '/*'] });
+}
+
+browser.runtime.onInstalled.addListener(async () => {
+  if (!(await hasAccess(DEFAULT_URL))) browser.runtime.openOptionsPage();
+});
 
 browser.runtime.onConnect.addListener((port) => {
   if (port.name !== 'tcc-stream') return;
@@ -17,6 +37,11 @@ browser.runtime.onConnect.addListener((port) => {
 async function run(port, signal) {
   const { url } = await browser.storage.local.get({ url: DEFAULT_URL });
   const status = (text) => port.postMessage({ type: 'status', text });
+  if (!(await hasAccess(url))) {
+    status('No access to ' + new URL(url).host + '. Open the extension options.');
+    browser.runtime.openOptionsPage();
+    return;
+  }
   while (!signal.aborted) {
     try {
       status('Connecting to ' + url);
