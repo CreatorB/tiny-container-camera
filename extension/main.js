@@ -22,7 +22,7 @@
   let decoding = false;
   let pending = null;
   let gotFrame = false;
-  let statusText = 'Menunggu kamera...';
+  let statusText = 'Waiting for camera...';
 
   function send(type) {
     window.postMessage({ __tcc: 'to-isolated', type }, '*');

@@ -19,12 +19,12 @@ async function run(port, signal) {
   const status = (text) => port.postMessage({ type: 'status', text });
   while (!signal.aborted) {
     try {
-      status('Menghubungkan ke ' + url);
+      status('Connecting to ' + url);
       await readStream(url, signal, (frame) => port.postMessage({ type: 'frame', data: frame }));
-      status('Stream berakhir, menyambung ulang...');
+      status('Stream ended, reconnecting...');
     } catch (err) {
       if (signal.aborted) break;
-      status('Kamera tidak terjangkau: ' + url);
+      status('Camera unreachable: ' + url);
       console.warn('[tiny-container-camera]', url, err);
     }
     await new Promise((r) => setTimeout(r, RECONNECT_MS));

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tiny Container Camera",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use the Android host camera (via an MJPEG stream such as IP Webcam) as a webcam in Microsoft Teams web inside Tiny Computer / proot.",
   "browser_specific_settings": {
     "gecko": {

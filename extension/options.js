@@ -14,15 +14,15 @@ document.getElementById('save').addEventListener('click', async () => {
   try {
     origin = new URL(url).origin;
   } catch (_) {
-    msg.textContent = 'URL tidak valid.';
+    msg.textContent = 'Invalid URL.';
     return;
   }
   // 127.0.0.1/localhost are granted by default; other hosts need permission.
   const granted = await browser.permissions.request({ origins: [origin + '/*'] });
   if (!granted) {
-    msg.textContent = 'Izin akses ke ' + origin + ' ditolak.';
+    msg.textContent = 'Permission to access ' + origin + ' was denied.';
     return;
   }
   await browser.storage.local.set({ url });
-  msg.textContent = 'Tersimpan. Muat ulang tab Teams.';
+  msg.textContent = 'Saved. Reload the Teams tab.';
 });
