@@ -4,33 +4,85 @@
   <meta charset="utf-8">
   <title>Tiny Container Camera test</title>
   <style>
-    body { font: 14px sans-serif; padding: 12px; }
-    video { width: 480px; max-width: 100%; background: #000; }
-    pre { background: #f3f3f3; padding: 8px; }
+    body { margin: 0; padding: 32px; font: 15px system-ui, sans-serif; background: #1f2430; color: #cbccc6; }
+    h1 { margin: 0 0 4px; font-size: 24px; color: #fff; }
+    p.sub { margin: 0 0 20px; color: #8a9199; }
+    .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+    video { width: 720px; max-width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; }
+    .panel { min-width: 280px; flex: 1; }
+    button { font: inherit; padding: 8px 16px; margin-right: 8px; border: 0; border-radius: 8px; cursor: pointer; }
+    #start { background: #5ccfe6; color: #1f2430; font-weight: 600; }
+    #stop { background: #34455a; color: #cbccc6; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8a9199; margin: 20px 0 8px; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { padding: 8px 12px; margin-bottom: 6px; background: #232834; border-radius: 8px; }
+    li.virtual { border-left: 3px solid #ffcc66; color: #fff; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+    dt { color: #8a9199; }
+    dd { margin: 0; color: #fff; }
+    pre { white-space: pre-wrap; color: #8a9199; font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>Tiny Container Camera test</h1>
-  <p><button id="start">Start camera</button> <button id="stop">Stop</button></p>
-  <video id="v" autoplay muted playsinline></video>
+  <h1>Camera check</h1>
+  <p class="sub">Tests the virtual camera the way a meeting site sees it: enumerateDevices() and getUserMedia().</p>
+  <div class="row">
+    <video id="v" autoplay muted playsinline></video>
+    <div class="panel">
+      <button id="start">Start camera</button><button id="stop">Stop</button>
+      <h2>Cameras</h2>
+      <ul id="cams"><li>Click "Start camera"</li></ul>
+      <h2>Track</h2>
+      <dl>
+        <dt>Label</dt><dd id="label">-</dd>
+        <dt>Resolution</dt><dd id="res">-</dd>
+        <dt>Frame rate</dt><dd id="fps">-</dd>
+      </dl>
+    </div>
+  </div>
   <pre id="log"></pre>
   <script>
-    const log = (s) => { document.getElementById('log').textContent += s + '\n'; };
+    const $ = (id) => document.getElementById(id);
+    const log = (s) => { $('log').textContent += s + '\n'; };
+    const v = $('v');
     let stream = null;
-    document.getElementById('start').onclick = async () => {
+    let frames = 0;
+
+    function countFrames() {
+      frames++;
+      if (stream) v.requestVideoFrameCallback(countFrames);
+    }
+
+    setInterval(() => {
+      if (stream) $('fps').textContent = frames + ' fps';
+      frames = 0;
+      if (v.videoWidth) $('res').textContent = v.videoWidth + ' x ' + v.videoHeight;
+    }, 1000);
+
+    $('start').onclick = async () => {
       try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        log('devices: ' + JSON.stringify(devices.filter((d) => d.kind === 'videoinput')));
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
         const t = stream.getVideoTracks()[0];
+        $('label').textContent = t.label;
         log('track: ' + t.label + ' ' + JSON.stringify(t.getSettings()));
-        document.getElementById('v').srcObject = stream;
+        v.srcObject = stream;
+        v.requestVideoFrameCallback(countFrames);
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+        $('cams').innerHTML = '';
+        for (const d of cams) {
+          const li = document.createElement('li');
+          li.textContent = d.label || '(unnamed camera)';
+          if (d.deviceId === t.getSettings().deviceId) li.className = 'virtual';
+          $('cams').appendChild(li);
+        }
+        log('devices: ' + JSON.stringify(cams));
       } catch (e) {
         log('error: ' + e.name + ': ' + e.message);
       }
     };
-    document.getElementById('stop').onclick = () => {
+    $('stop').onclick = () => {
       if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
       log('stopped');
     };
   </script>
