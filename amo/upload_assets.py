@@ -5,7 +5,7 @@ web-ext sign uploads the listing text (amo/metadata.json) but not images.
 Run this after the add-on is listed. Needs WEB_EXT_API_KEY and
 WEB_EXT_API_SECRET in the environment (same keys as web-ext sign).
 
-Usage: python3 amo/upload_assets.py
+Usage: python3 amo/upload_assets.py [--icon]   (--icon: upload the icon again)
 """
 import base64
 import hashlib
@@ -83,9 +83,17 @@ def send(req, method, url):
         sys.exit(f"{method} {url} failed: {e.code} {e.read().decode()[:500]}")
 
 
+def get(url):
+    req = urllib.request.Request(url, headers={"Authorization": "JWT " + jwt_token()})
+    return send(req, "GET", url)
+
+
 def main():
-    addon = request("PATCH", API + "/", files={"icon": ICON})
-    print("icon uploaded")
+    # Only send what is missing: AMO rate-limits these requests.
+    addon = get(API + "/")
+    if "--icon" in sys.argv or "default" in (addon.get("icon_url") or "default"):
+        addon = request("PATCH", API + "/", files={"icon": ICON})
+        print("icon uploaded")
     if addon.get("slug") != SLUG:
         addon = request_json("PATCH", API + "/", {"slug": SLUG})
     print("listing:", addon.get("url"))
