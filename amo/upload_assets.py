@@ -107,6 +107,9 @@ def main():
             preview = request("POST", API + "/previews/", fields={"position": i},
                               files={"image": os.path.join(ROOT, path)})
             print("uploaded:", path)
+            # A caption set right after the upload is not kept while AMO is
+            # still processing the image.
+            time.sleep(10)
         if (preview.get("caption") or {}).get("en-US") != caption:
             request_json("PATCH", f"{API}/previews/{preview['id']}/", {"caption": {"en-US": caption}})
             print("caption set:", path)
