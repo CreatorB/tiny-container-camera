@@ -242,6 +242,29 @@ adb shell dumpsys deviceidle whitelist +com.pas.webcam
 adb shell cmd appops set com.pas.webcam RUN_ANY_IN_BACKGROUND allow
 ```
 
+### "Sorry, we encountered a problem joining this video call"
+
+Firefox was started without the WebRTC fix, so the call cannot connect even
+though the camera works. Open the extension's toolbar button: **WebRTC fix**
+shows *Not loaded* in that case.
+
+The usual cause is the XFCE app menu or panel caching the old Firefox entry
+from before `webrtc-fix/install.sh` was run, so it still starts
+`/usr/lib/firefox-esr/firefox-esr` directly. Fix it once with:
+
+```sh
+xfce4-panel -r
+```
+
+then quit Firefox completely (Ctrl+Q) and start it again from the app menu.
+To check a running Firefox:
+
+```sh
+tr '\0' '\n' < /proc/$(pgrep -o -f /usr/lib/firefox-esr/firefox-esr)/environ | grep LD_PRELOAD
+```
+
+It should print a path ending in `libnetlink_shim.so`.
+
 ### Checking the WebRTC fix
 
 ```sh

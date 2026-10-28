@@ -26,6 +26,10 @@ async function refresh() {
   const dev = res.devices.find((d) => d.state === 'device');
   setValue($('device'), dev ? (dev.model || 'Device') + ' (' + dev.serial + ')' : 'Not connected', !!dev);
   setValue($('camera'), res.running ? 'On (' + res.facing + ')' : 'Off', res.running);
+  setValue($('webrtc'), res.webrtcFix
+    ? 'Active'
+    : 'Not loaded: calls may fail to connect. Run webrtc-fix/install.sh, then quit Firefox and start it from the app menu.',
+  res.webrtcFix);
 }
 
 async function run(button, body, done, working = 'Working...') {

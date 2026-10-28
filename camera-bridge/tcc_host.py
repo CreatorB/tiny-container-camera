@@ -74,7 +74,11 @@ def bridge_pid():
 
 def status():
     pid, facing = bridge_pid()
-    return {"ok": True, "devices": devices(), "running": pid is not None, "facing": facing}
+    # Firefox starts this host, so its environment is Firefox's: this tells
+    # whether Firefox was started with the WebRTC fix (webrtc-fix/).
+    webrtc_fix = "libnetlink_shim" in os.environ.get("LD_PRELOAD", "")
+    return {"ok": True, "devices": devices(), "running": pid is not None, "facing": facing,
+            "webrtcFix": webrtc_fix}
 
 
 def open_ports(host, ports, timeout=0.3, workers=512):

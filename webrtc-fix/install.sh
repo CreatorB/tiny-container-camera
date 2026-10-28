@@ -68,3 +68,9 @@ EOF
 echo "wrote $HELPER"
 
 echo "Done. Close every Firefox window and start it again."
+if command -v xfce4-panel >/dev/null && pgrep -x xfce4-panel >/dev/null; then
+  # The XFCE menu caches desktop entries; without a restart it may keep
+  # starting Firefox without the fix.
+  xfce4-panel -r >/dev/null 2>&1 &
+  echo "Restarted the XFCE panel so its menu uses the new Firefox entry."
+fi
