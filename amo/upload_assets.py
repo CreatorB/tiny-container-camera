@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 
 ADDON = "tiny-container-camera@creatorb"
+SLUG = "tiny-container-camera"
 API = "https://addons.mozilla.org/api/v5/addons/addon/" + urllib.request.quote(ADDON, safe="")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON = os.path.join(ROOT, "extension", "icons", "icon-128.png")
@@ -84,16 +85,23 @@ def send(req, method, url):
 
 def main():
     addon = request("PATCH", API + "/", files={"icon": ICON})
-    print("icon uploaded; listing:", addon.get("url"))
-    existing = {p.get("caption", {}).get("en-US") for p in addon.get("previews", [])}
+    print("icon uploaded")
+    if addon.get("slug") != SLUG:
+        addon = request_json("PATCH", API + "/", {"slug": SLUG})
+    print("listing:", addon.get("url"))
+    # Screenshots are matched by position, so running this again only adds
+    # the missing ones and fixes captions. The API limits preview requests;
+    # if it answers 429, wait the time it gives and run this again.
+    existing = {p.get("position"): p for p in addon.get("previews", [])}
     for i, (path, caption) in enumerate(SCREENSHOTS):
-        if caption in existing:
-            print("already uploaded:", path)
-            continue
-        preview = request("POST", API + "/previews/", fields={"position": i},
-                          files={"image": os.path.join(ROOT, path)})
-        request_json("PATCH", f"{API}/previews/{preview['id']}/", {"caption": {"en-US": caption}})
-        print("uploaded:", path)
+        preview = existing.get(i)
+        if preview is None:
+            preview = request("POST", API + "/previews/", fields={"position": i},
+                              files={"image": os.path.join(ROOT, path)})
+            print("uploaded:", path)
+        if (preview.get("caption") or {}).get("en-US") != caption:
+            request_json("PATCH", f"{API}/previews/{preview['id']}/", {"caption": {"en-US": caption}})
+            print("caption set:", path)
 
 
 if __name__ == "__main__":
