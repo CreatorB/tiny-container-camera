@@ -28,7 +28,7 @@ BOUNDARY = b"tccframe"
 
 
 def log(*args):
-    print("[tcc-camera]", *args, file=sys.stderr, flush=True)
+    print(time.strftime("%H:%M:%S"), "[tcc-camera]", *args, file=sys.stderr, flush=True)
 
 
 def scrcpy_version():
@@ -62,12 +62,16 @@ class Camera:
         self.frames = Frames()
         self.procs = []
         self.port = None
+        self.scid = None
         self.bytes_in = 0
         self.frames_out = 0
 
-    def adb(self, *cmd, **kw):
+    def adb(self, *cmd, timeout=60):
         base = ["adb"] + (["-s", self.args.serial] if self.args.serial else [])
-        return subprocess.run(base + list(cmd), capture_output=True, text=True, **kw)
+        try:
+            return subprocess.run(base + list(cmd), capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(cmd, 1, "", "adb timed out")
 
     def start(self):
         server = next((p for p in SERVER_PATHS if os.path.exists(p)), None)
@@ -84,6 +88,7 @@ class Camera:
             sys.exit("adb push failed: " + r.stderr)
 
         scid = "%08x" % random.randrange(1, 0x7FFFFFFF)
+        self.scid = scid
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]
@@ -97,6 +102,9 @@ class Camera:
             "cleanup=true", "raw_stream=true", "video_codec=h264",
             "video_source=camera", f"camera_facing={a.facing}", f"max_size={a.size}",
             f"camera_fps={a.fps}", f"max_fps={a.fps}", f"video_bit_rate={a.bitrate}",
+            # ffmpeg can only start decoding at a keyframe; the default interval
+            # (10 s) would delay the first frame that long.
+            "video_codec_options=i-frame-interval=1",
         ]
         cmd = ["shell", f"CLASSPATH={DEVICE_JAR}", "app_process", "/",
                "com.genymobile.scrcpy.Server", scrcpy_version()] + params
@@ -196,10 +204,33 @@ class Camera:
             if p.poll() is None:
                 p.terminate()
         if self.port:
-            self.adb("forward", "--remove", f"tcp:{self.port}")
+            self.adb("forward", "--remove", f"tcp:{self.port}", timeout=10)
+        if self.scid:
+            # Killing the local adb client does not always stop the server on
+            # the device, which would keep the camera open.
+            self.adb("shell", "pkill", "-f", f"scid={self.scid}", timeout=10)
 
 
-def make_handler(frames):
+class Clients:
+    """Counts open /video streams to stop the camera when nobody watches."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.count = 0
+        self.idle_since = time.time()
+
+    def add(self, delta):
+        with self.lock:
+            self.count += delta
+            if self.count == 0:
+                self.idle_since = time.time()
+
+    def idle_for(self):
+        with self.lock:
+            return 0 if self.count else time.time() - self.idle_since
+
+
+def make_handler(frames, clients):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path.startswith("/video"):
@@ -222,6 +253,7 @@ def make_handler(frames):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             seq = 0
+            clients.add(1)
             try:
                 while True:
                     seq, frame = frames.wait(seq)
@@ -232,6 +264,8 @@ def make_handler(frames):
                     self.wfile.write(frame + b"\r\n")
             except (BrokenPipeError, ConnectionResetError):
                 pass
+            finally:
+                clients.add(-1)
 
         def log_message(self, fmt, *args):
             pass
@@ -249,19 +283,38 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--serial", help="ADB device serial, if more than one is connected")
     ap.add_argument("--verbose", action="store_true", help="log throughput every 5 seconds")
+    ap.add_argument("--idle-exit", type=int, default=0, metavar="SECONDS",
+                    help="stop the camera and exit after this long without viewers (0: never)")
     args = ap.parse_args()
 
     cam = Camera(args)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(cam.frames))
+    clients = Clients()
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(cam.frames, clients))
     server.daemon_threads = True
 
+    stopping = threading.Lock()
+
     def shutdown(*_):
+        # Reached from the idle watcher, the stream reader and signals; only
+        # the first caller cleans up, the others just wait for the exit.
+        if not stopping.acquire(blocking=False):
+            return
         cam.stop()
+        log("stopped")
         os._exit(0)
+
+    def watch_idle():
+        while True:
+            time.sleep(1)
+            if clients.idle_for() >= args.idle_exit:
+                log(f"no viewers for {args.idle_exit} s, stopping the camera")
+                shutdown()
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
     cam.start()
+    if args.idle_exit > 0:
+        threading.Thread(target=watch_idle, daemon=True).start()
     log(f"serving http://127.0.0.1:{args.port}/video")
     server.serve_forever()
 

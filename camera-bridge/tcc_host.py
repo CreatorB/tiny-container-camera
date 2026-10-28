@@ -10,17 +10,21 @@ import json
 import os
 import re
 import signal
+import socket
 import struct
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "tcc_camera.py")
 STATE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "tiny-container-camera")
 PID_FILE = os.path.join(STATE_DIR, "bridge.pid")
 LOG_FILE = os.path.join(STATE_DIR, "bridge.log")
+LAST_ADDRESS_FILE = os.path.join(STATE_DIR, "adb-address")
 ADDRESS_RE = re.compile(r"^[\w.\-]+:\d{1,5}$")
+IDLE_EXIT = 30
 
 
 def read_message():
@@ -73,20 +77,87 @@ def status():
     return {"ok": True, "devices": devices(), "running": pid is not None, "facing": facing}
 
 
+def open_ports(host, ports, timeout=0.3, workers=512):
+    """Returns the ports in `ports` that accept a TCP connection on `host`."""
+    def probe(port):
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return port
+        except OSError:
+            return None
+    with ThreadPoolExecutor(workers) as pool:
+        return [p for p in pool.map(probe, ports) if p]
+
+
+def known_addresses():
+    """Addresses that worked before: ours, then Tiny Computer's adb scanner's."""
+    found = []
+    for path in (LAST_ADDRESS_FILE, os.path.expanduser("~/.config/tiny/adb-target")):
+        try:
+            with open(path) as f:
+                address = f.read().strip()
+        except OSError:
+            continue
+        if ADDRESS_RE.match(address) and address not in found:
+            found.append(address)
+    return found
+
+
+def find_wireless_debugging():
+    """Finds the wireless debugging address, or returns None."""
+    # The port only changes when wireless debugging is turned off and on.
+    for address in known_addresses():
+        host, port = address.rsplit(":", 1)
+        if speaks_adb(host, int(port)):
+            return address
+    # Wireless debugging advertises its port over mDNS, but multicast usually
+    # does not work inside proot.
+    match = re.search(r"_adb-tls-connect\._tcp\.?\s+([\d.]+:\d+)", adb("mdns", "services"))
+    if match:
+        return match.group(1)
+    # Inside Tiny Computer and other proot containers the device is reachable
+    # on 127.0.0.1, and Android picks the port from 30000-49999. Scanning is
+    # slow under proot (every syscall is traced), up to a couple of minutes.
+    for port in open_ports("127.0.0.1", range(30000, 50000)):
+        if speaks_adb("127.0.0.1", port):
+            return f"127.0.0.1:{port}"
+    return None
+
+
+ADB_COMMANDS = {b"CNXN", b"AUTH", b"STLS"}
+
+
+def speaks_adb(host, port):
+    """Sends an ADB CNXN packet and checks that adbd answers."""
+    payload = b"host::\0"
+    command = struct.unpack("<I", b"CNXN")[0]
+    header = struct.pack("<6I", command, 0x01000001, 256 * 1024, len(payload),
+                         sum(payload), command ^ 0xFFFFFFFF)
+    try:
+        with socket.create_connection((host, port), timeout=1) as s:
+            s.sendall(header + payload)
+            return s.recv(24)[:4] in ADB_COMMANDS
+    except OSError:
+        return False
+
+
 def connect(address):
     if address:
         if not ADDRESS_RE.match(address):
             return {"ok": False, "error": "address must look like HOST:PORT"}
-        out = adb("connect", address)
     else:
-        # Wireless debugging advertises its connect port over mDNS.
-        services = adb("mdns", "services")
-        match = re.search(r"_adb-tls-connect\._tcp\.?\s+([\d.]+:\d+)", services)
-        if not match:
-            return {"ok": False, "error": "no device found over mDNS; enter HOST:PORT from "
-                    "Developer options > Wireless debugging"}
-        out = adb("connect", match.group(1))
-    return {"ok": "connected" in out, "output": out, "devices": devices()}
+        ready = [d["serial"] for d in devices() if d["state"] == "device"]
+        address = ready[0] if ready else find_wireless_debugging()
+        if not address:
+            return {"ok": False, "error": "no device found; turn on Developer options > Wireless "
+                    "debugging, or enter the HOST:PORT it shows"}
+    out = adb("connect", address)
+    ok = "connected" in out
+    if ok:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(LAST_ADDRESS_FILE, "w") as f:
+            f.write(address)
+    return {"ok": ok, "output": out, "address": address, "devices": devices()}
 
 
 def pair(address, code):
@@ -107,7 +178,9 @@ def start(facing):
         return {"ok": False, "error": "no ADB device connected"}
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(LOG_FILE, "w") as log:
-        proc = subprocess.Popen([sys.executable, BRIDGE, "--facing", facing],
+        # --idle-exit turns the camera off even if the extension never sends
+        # "stop" (e.g. Firefox was closed or its background script suspended).
+        proc = subprocess.Popen([sys.executable, BRIDGE, "--facing", facing, "--idle-exit", str(IDLE_EXIT)],
                                 stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                 start_new_session=True)
     with open(PID_FILE, "w") as f:
