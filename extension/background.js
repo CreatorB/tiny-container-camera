@@ -2,7 +2,7 @@
 // CORS/CSP) and sends each JPEG frame to the content script over a port.
 'use strict';
 
-const DEFAULT_URL = 'http://127.0.0.1:8080/video';
+const DEFAULT_URL = 'http://127.0.0.1:8765/video';
 const RECONNECT_MS = 2000;
 // Debug builds set this to a local endpoint that collects page logs.
 const LOG_URL = '';
@@ -25,31 +25,71 @@ browser.runtime.onInstalled.addListener(async () => {
   if (!(await hasAccess(DEFAULT_URL))) browser.runtime.openOptionsPage();
 });
 
+// The ADB camera bridge (camera-bridge/ in the repository) is started through
+// native messaging when a page needs the camera, and stopped when no page has
+// used it for a while so the device camera is not left on.
+const NATIVE_HOST = 'tiny_container_camera';
+const BRIDGE_STOP_DELAY_MS = 15000;
+let streams = 0;
+let stopTimer = null;
+
+function isBridgeUrl(url) {
+  return url === DEFAULT_URL;
+}
+
+async function nativeCommand(msg) {
+  try {
+    return await browser.runtime.sendNativeMessage(NATIVE_HOST, msg);
+  } catch (err) {
+    return { ok: false, error: 'Camera bridge not installed (camera-bridge/install.sh): ' + err.message };
+  }
+}
+
+browser.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'native') return nativeCommand(msg.body);
+});
+
 browser.runtime.onConnect.addListener((port) => {
   if (port.name !== 'tcc-stream') return;
   const ctrl = new AbortController();
-  port.onDisconnect.addListener(() => ctrl.abort());
+  streams++;
+  clearTimeout(stopTimer);
+  port.onDisconnect.addListener(() => {
+    ctrl.abort();
+    if (--streams === 0) stopTimer = setTimeout(stopBridgeIfIdle, BRIDGE_STOP_DELAY_MS);
+  });
   // Keepalive pings from isolated.js; receiving them resets the idle timer.
   port.onMessage.addListener(() => {});
   run(port, ctrl.signal);
 });
 
+async function stopBridgeIfIdle() {
+  const { url, autoStop } = await browser.storage.local.get({ url: DEFAULT_URL, autoStop: true });
+  if (streams === 0 && autoStop && isBridgeUrl(url)) nativeCommand({ cmd: 'stop' });
+}
+
 async function run(port, signal) {
-  const { url } = await browser.storage.local.get({ url: DEFAULT_URL });
+  const { url, facing } = await browser.storage.local.get({ url: DEFAULT_URL, facing: 'front' });
   const status = (text) => port.postMessage({ type: 'status', text });
   if (!(await hasAccess(url))) {
     status('No access to ' + new URL(url).host + '. Open the extension options.');
     browser.runtime.openOptionsPage();
     return;
   }
+  let bridgeError = '';
   while (!signal.aborted) {
+    if (isBridgeUrl(url)) {
+      // Idempotent: returns at once if the bridge is already running.
+      const res = await nativeCommand({ cmd: 'start', facing });
+      bridgeError = res.ok ? '' : res.error;
+    }
     try {
-      status('Connecting to ' + url);
+      status(bridgeError || (isBridgeUrl(url) ? 'Starting camera over ADB...' : 'Connecting to ' + url));
       await readStream(url, signal, (frame) => port.postMessage({ type: 'frame', data: frame }));
       status('Stream ended, reconnecting...');
     } catch (err) {
       if (signal.aborted) break;
-      status('Camera unreachable: ' + url);
+      status(bridgeError || 'Camera unreachable: ' + url);
       console.warn('[tiny-container-camera]', url, err);
     }
     await new Promise((r) => setTimeout(r, RECONNECT_MS));

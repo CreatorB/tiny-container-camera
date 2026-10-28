@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root { color-scheme: light dark; --bg: #fff; --fg: #1f2430; --muted: #6b7280; --card: #f3f4f6; --accent: #0b7285; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1f2430; --fg: #e6e6e6; --muted: #8a9199; --card: #2a3040; --accent: #5ccfe6; }
+    }
+    body { width: 320px; margin: 0; padding: 12px; font: 13px system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    header img { width: 24px; height: 24px; }
+    header b { font-size: 14px; }
+    .card { background: var(--card); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+    .row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+    .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .value { font-weight: 600; }
+    .ok { color: #2f9e44; }
+    .bad { color: #e03131; }
+    input, select { flex: 1; min-width: 0; padding: 4px 6px; font: inherit; }
+    button { padding: 4px 10px; font: inherit; cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--bg); border: 0; border-radius: 4px; font-weight: 600; }
+    details summary { cursor: pointer; color: var(--muted); }
+    #msg { min-height: 16px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+    footer { display: flex; justify-content: space-between; margin-top: 6px; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header><img src="icons/icon-48.png" alt=""><b>Tiny Container Camera</b></header>
+
+  <div class="card">
+    <div class="label">ADB device</div>
+    <div id="device" class="value">Checking...</div>
+    <div class="row">
+      <input id="address" placeholder="HOST:PORT (empty = auto)">
+      <button id="connect">Connect</button>
+    </div>
+    <details>
+      <summary>Pair a new device</summary>
+      <div class="row">
+        <input id="pairAddress" placeholder="HOST:PORT">
+        <input id="pairCode" placeholder="Code" maxlength="6" size="6">
+        <button id="pair">Pair</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="label">Camera</div>
+    <div id="camera" class="value">-</div>
+    <div class="row">
+      <select id="facing">
+        <option value="front">Front camera</option>
+        <option value="back">Back camera</option>
+      </select>
+      <button id="start" class="primary">Start</button>
+      <button id="stop">Stop</button>
+    </div>
+  </div>
+
+  <div id="msg"></div>
+  <footer>
+    <a href="#" id="options">Options</a>
+    <a href="https://github.com/CreatorB/tiny-container-camera#readme" target="_blank">Help</a>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>

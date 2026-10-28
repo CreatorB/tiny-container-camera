@@ -1,8 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Tiny Container Camera",
-  "version": "0.1.2",
-  "description": "Use the Android host camera (via an MJPEG stream such as IP Webcam) as a webcam on any website (Teams, Meet, Zoom...) inside Tiny Computer / proot.",
+  "version": "0.1.3",
+  "description": "Use your Android camera as a webcam on any website (Teams, Meet, Zoom...) in Firefox inside Tiny Computer / proot Linux, over ADB or an MJPEG app.",
+  "homepage_url": "https://github.com/CreatorB/tiny-container-camera",
+  "icons": {
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "tiny-container-camera@creatorb",
@@ -22,7 +29,8 @@
     "http://*/*"
   ],
   "permissions": [
-    "storage"
+    "storage",
+    "nativeMessaging"
   ],
   "background": {
     "scripts": [
@@ -31,6 +39,14 @@
   },
   "options_ui": {
     "page": "options.html"
+  },
+  "action": {
+    "default_title": "Tiny Container Camera",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
   },
   "content_scripts": [
     {

@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_URL = 'http://127.0.0.1:8080/video';
+const DEFAULT_URL = 'http://127.0.0.1:8765/video';
 const input = document.getElementById('url');
 const access = document.getElementById('access');
 const msg = document.getElementById('msg');
