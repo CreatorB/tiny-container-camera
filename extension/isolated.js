@@ -20,7 +20,28 @@ window.addEventListener('message', (e) => {
   if (e.data.type === 'start') start();
   else if (e.data.type === 'stop') stop();
   else if (e.data.type === 'log') browser.runtime.sendMessage({ type: 'log', text: String(e.data.text) });
+  else if (e.data.type === 'permission') askPermission(e.data.id);
 });
+
+// Uses a port with keepalive pings rather than sendMessage: the user may take
+// a while to answer the prompt, and an idle background script would be
+// suspended, dropping a pending sendMessage reply.
+function askPermission(id) {
+  const p = browser.runtime.connect({ name: 'tcc-permission' });
+  const ping = setInterval(() => p.postMessage({ type: 'ping' }), KEEPALIVE_MS);
+  let answered = false;
+  const answer = (allowed) => {
+    if (answered) return;
+    answered = true;
+    clearInterval(ping);
+    p.disconnect();
+    post({ type: 'permission', id, allowed });
+  };
+  p.onMessage.addListener((msg) => {
+    if (msg.type === 'permission') answer(!!msg.allowed);
+  });
+  p.onDisconnect.addListener(() => answer(false));
+}
 
 function start() {
   wanted = true;
@@ -41,6 +62,10 @@ function connect() {
   });
   keepalive = setInterval(() => port && port.postMessage({ type: 'ping' }), KEEPALIVE_MS);
 }
+
+// Pages kept in the back/forward cache do not drop their ports, which would
+// keep the camera streaming after the user navigated away.
+window.addEventListener('pagehide', () => stop());
 
 function stop() {
   wanted = false;

@@ -45,8 +45,89 @@ async function nativeCommand(msg) {
   }
 }
 
-browser.runtime.onMessage.addListener((msg) => {
+// Messages from the popup, options and prompt pages, as opposed to content
+// scripts, whose sender.url is the web page they run in. (The prompt window
+// counts as a tab, so sender.tab cannot be used to tell them apart.)
+function fromExtensionPage(sender) {
+  return !!sender.url && sender.url.startsWith(browser.runtime.getURL(''));
+}
+
+// The virtual camera bypasses Firefox's own camera prompt, so every site has
+// to be allowed here first. The site is taken from sender.url, which Firefox
+// sets, never from the message, so a page cannot pretend to be another one.
+function senderOrigin(sender) {
+  try {
+    return new URL(sender.url).origin;
+  } catch (_) {
+    return '';
+  }
+}
+
+const prompts = new Map(); // origin -> { promise, resolve, windowId }
+
+async function siteDecision(origin) {
+  const { sites } = await browser.storage.local.get({ sites: {} });
+  return sites[origin];
+}
+
+async function isAllowed(origin) {
+  if (!origin || origin === 'null') return false;
+  const decision = await siteDecision(origin);
+  if (decision) return decision === 'allow';
+  if (!prompts.has(origin)) {
+    let resolve;
+    const promise = new Promise((r) => (resolve = r));
+    const entry = { promise, resolve, windowId: null };
+    prompts.set(origin, entry);
+    const win = await browser.windows.create({
+      type: 'popup',
+      url: 'prompt.html?origin=' + encodeURIComponent(origin),
+      width: 460,
+      height: 260,
+    });
+    entry.windowId = win.id;
+  }
+  return prompts.get(origin).promise;
+}
+
+async function decide(origin, allow) {
+  const { sites } = await browser.storage.local.get({ sites: {} });
+  sites[origin] = allow ? 'allow' : 'block';
+  await browser.storage.local.set({ sites });
+  const entry = prompts.get(origin);
+  if (entry) {
+    prompts.delete(origin);
+    entry.resolve(allow);
+  }
+}
+
+// Closing the prompt without choosing denies this request only.
+browser.windows.onRemoved.addListener((windowId) => {
+  for (const [origin, entry] of prompts) {
+    if (entry.windowId === windowId) {
+      prompts.delete(origin);
+      entry.resolve(false);
+    }
+  }
+});
+
+browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'tcc-permission' || fromExtensionPage(port.sender)) return;
+  // Keepalive pings while the prompt is open.
+  port.onMessage.addListener(() => {});
+  isAllowed(senderOrigin(port.sender)).then((allowed) => {
+    try {
+      port.postMessage({ type: 'permission', allowed });
+    } catch (_) {
+      // The page went away before the user answered.
+    }
+  });
+});
+
+browser.runtime.onMessage.addListener((msg, sender) => {
+  if (!fromExtensionPage(sender)) return;
   if (msg.type === 'native') return nativeCommand(msg.body);
+  if (msg.type === 'permission-decision') return decide(msg.origin, !!msg.allow);
 });
 
 browser.runtime.onConnect.addListener((port) => {
@@ -60,7 +141,12 @@ browser.runtime.onConnect.addListener((port) => {
   });
   // Keepalive pings from isolated.js; receiving them resets the idle timer.
   port.onMessage.addListener(() => {});
-  run(port, ctrl.signal);
+  const origin = senderOrigin(port.sender);
+  isAllowed(origin).then((allowed) => {
+    if (ctrl.signal.aborted) return;
+    if (allowed) run(port, ctrl.signal);
+    else port.postMessage({ type: 'status', text: 'Camera blocked for ' + origin });
+  });
 });
 
 async function stopBridgeIfIdle() {

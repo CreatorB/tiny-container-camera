@@ -39,9 +39,26 @@
     send('log', { text: location.host + location.pathname + ' | ' + text });
   }
 
+  // Asks the extension whether this site may use the camera (it may show a
+  // prompt). The answer only decides how getUserMedia fails; the extension
+  // itself refuses to stream to a site that is not allowed.
+  const permissionWaiters = new Map();
+  let permissionSeq = 0;
+  function requestPermission() {
+    const id = ++permissionSeq;
+    return new Promise((resolve) => {
+      permissionWaiters.set(id, resolve);
+      send('permission', { id });
+    });
+  }
+
   window.addEventListener('message', (e) => {
     if (e.source !== window || !e.data || e.data.__tcc !== 'to-main') return;
-    if (e.data.type === 'frame') {
+    if (e.data.type === 'permission') {
+      const resolve = permissionWaiters.get(e.data.id);
+      permissionWaiters.delete(e.data.id);
+      if (resolve) resolve(!!e.data.allowed);
+    } else if (e.data.type === 'frame') {
       pending = e.data.data;
       drawPending();
     } else if (e.data.type === 'status') {
@@ -155,6 +172,10 @@
     md.getUserMedia = async function (constraints) {
       log('getUserMedia', constraints);
       if (!constraints || !constraints.video) return origGetUserMedia(constraints);
+      if (!(await requestPermission())) {
+        log('getUserMedia blocked by site permission');
+        throw new DOMException('Camera access was blocked for this site', 'NotAllowedError');
+      }
       try {
         const stream = constraints.audio
           ? await origGetUserMedia({ audio: constraints.audio })

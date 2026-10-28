@@ -19,6 +19,39 @@ async function showAccess(url) {
   access.style.color = granted ? '#188038' : '#c5221f';
 }
 
+async function showSites() {
+  const { sites } = await browser.storage.local.get({ sites: {} });
+  const list = document.getElementById('sites');
+  list.textContent = '';
+  const origins = Object.keys(sites).sort();
+  if (!origins.length) {
+    const li = document.createElement('li');
+    li.textContent = 'No sites yet.';
+    list.appendChild(li);
+  }
+  for (const origin of origins) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = origin + ' ';
+    const state = document.createElement('b');
+    state.textContent = sites[origin] === 'allow' ? 'allowed' : 'blocked';
+    state.className = sites[origin];
+    label.appendChild(state);
+    const remove = document.createElement('button');
+    remove.textContent = 'Remove';
+    remove.onclick = async () => {
+      const current = (await browser.storage.local.get({ sites: {} })).sites;
+      delete current[origin];
+      await browser.storage.local.set({ sites: current });
+      showSites();
+    };
+    li.append(label, remove);
+    list.appendChild(li);
+  }
+}
+
+showSites();
+
 browser.storage.local.get({ url: DEFAULT_URL }).then(({ url }) => {
   input.value = url;
   showAccess(url);

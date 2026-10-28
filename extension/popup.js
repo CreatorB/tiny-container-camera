@@ -28,17 +28,20 @@ async function refresh() {
   setValue($('camera'), res.running ? 'On (' + res.facing + ')' : 'Off', res.running);
 }
 
-async function run(button, body, done) {
+async function run(button, body, done, working = 'Working...') {
   button.disabled = true;
-  say('Working...');
+  say(working);
   const res = await native(body);
   button.disabled = false;
   say(res.ok ? done : res.error || res.output);
   await refresh();
 }
 
-$('connect').onclick = () =>
-  run($('connect'), { cmd: 'connect', address: $('address').value }, 'Connected.');
+$('connect').onclick = () => {
+  const address = $('address').value.trim();
+  run($('connect'), { cmd: 'connect', address }, 'Connected.',
+    address ? 'Connecting...' : 'Searching for the device. A full search can take up to 2 minutes...');
+};
 
 $('pair').onclick = () =>
   run($('pair'), { cmd: 'pair', address: $('pairAddress').value, code: $('pairCode').value },

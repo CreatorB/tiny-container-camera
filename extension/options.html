@@ -8,6 +8,12 @@
     input { width: 100%; box-sizing: border-box; padding: 4px; }
     #access { margin: 8px 0; font-weight: bold; }
     #msg { margin-top: 8px; color: #555; }
+    h3 { margin: 20px 0 4px; font-size: 14px; }
+    .hint { margin: 0 0 8px; color: #555; }
+    #sites { list-style: none; padding: 0; margin: 0; }
+    #sites li { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #ddd; }
+    #sites .allow { color: #188038; }
+    #sites .block { color: #c5221f; }
   </style>
 </head>
 <body>
@@ -16,6 +22,9 @@
   <div id="access"></div>
   <p><button id="save">Save and grant access</button></p>
   <div id="msg"></div>
+  <h3>Sites</h3>
+  <p class="hint">Sites must be allowed before they can use the camera. Remove a site to be asked again.</p>
+  <ul id="sites"></ul>
   <script src="options.js"></script>
 </body>
 </html>
