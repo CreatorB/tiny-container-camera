@@ -33,6 +33,10 @@ Tiny Container Camera fixes that. It reads the device camera over ADB
 - No extra Android app: the camera is read over ADB with
   [scrcpy](https://github.com/Genymobile/scrcpy)'s server, started and stopped
   automatically when a site needs the camera.
+- Asks before a site can use the camera, like Firefox does for a real webcam.
+  Decisions are remembered per site and can be changed on the options page.
+- The device camera turns off by itself shortly after the last page stops
+  using it.
 - Toolbar button to connect or pair ADB and switch between the front and back
   camera.
 - Also works with any MJPEG stream, such as the IP Webcam app.
@@ -115,9 +119,12 @@ from the extension's toolbar button (*Pair a new device*) or with:
 adb pair HOST:PAIRING_PORT CODE
 ```
 
-Then connect with the toolbar button (*Connect*, leave the address empty to
-find the device automatically) or with `adb connect HOST:PORT`, using the port
-shown on the Wireless debugging screen.
+Then connect with the toolbar button (*Connect*) or with
+`adb connect HOST:PORT`, using the port shown on the Wireless debugging screen.
+With the address left empty, *Connect* tries the last address that worked,
+then looks for the port by itself; that search can take up to 2 minutes inside
+proot, so typing the address is faster after wireless debugging was turned off
+and on.
 
 ### 2. Camera bridge
 
@@ -169,7 +176,20 @@ LD_PRELOAD=/tmp/libnetlink_shim.so firefox-esr
 ### 5. Join a meeting
 
 Pick the **Android Camera (Tiny Container)** camera in the meeting settings.
-The first frame takes a few seconds while the camera starts on the device.
+The first time a site asks for the camera, the extension opens a small window:
+choose **Allow**. The first frame takes a few seconds while the camera starts
+on the device.
+
+## Privacy
+
+Because the virtual camera bypasses Firefox's own camera prompt, the extension
+asks for itself: a site gets no video, and the device camera is not turned on,
+until you allow that site. The check runs in the extension's background
+script against the address Firefox reports for the page, so a page cannot
+grant itself access. Allowed and blocked sites are listed on the options page.
+
+The camera bridge stops 15 seconds after the last page releases the camera,
+and in any case after 30 seconds without viewers (even if Firefox was closed).
 
 ## Using IP Webcam instead of ADB
 
@@ -181,6 +201,11 @@ Make sure nothing else in the container listens on port 8080 (a local web
 server, for example), or change the IP Webcam port.
 
 ## Troubleshooting
+
+### The site says the camera is blocked
+
+You chose **Block** for that site earlier. Open the extension options in
+`about:addons`, remove the site under **Sites**, and reload the page.
 
 ### The camera shows "No access to 127.0.0.1"
 
