@@ -43,6 +43,10 @@ api.runtime.onInstalled.addListener(async () => {
 const NATIVE_HOST = 'tiny_container_camera';
 const BRIDGE_STOP_DELAY_MS = 15000;
 let streams = 0;
+// Set by the toolbar's Stop button: pages still holding the camera must not
+// turn it back on by reconnecting. Cleared by Start, or once no page uses
+// the camera any more.
+let stoppedByUser = false;
 let stopTimer = null;
 
 function isBridgeUrl(url) {
@@ -145,7 +149,11 @@ function handleMessage(msg, sender) {
     return undefined;
   }
   if (!fromExtensionPage(sender)) return undefined;
-  if (msg.type === 'native') return nativeCommand(msg.body);
+  if (msg.type === 'native') {
+    if (msg.body.cmd === 'stop') stoppedByUser = true;
+    if (msg.body.cmd === 'start') stoppedByUser = false;
+    return nativeCommand(msg.body);
+  }
   if (msg.type === 'permission-decision') return decide(msg.origin, !!msg.allow);
   return undefined;
 }
@@ -166,7 +174,10 @@ api.runtime.onConnect.addListener((port) => {
   clearTimeout(stopTimer);
   port.onDisconnect.addListener(() => {
     ctrl.abort();
-    if (--streams === 0) stopTimer = setTimeout(stopBridgeIfIdle, BRIDGE_STOP_DELAY_MS);
+    if (--streams === 0) {
+      stoppedByUser = false;
+      stopTimer = setTimeout(stopBridgeIfIdle, BRIDGE_STOP_DELAY_MS);
+    }
   });
   // Keepalive pings from isolated.js; receiving them resets the idle timer.
   port.onMessage.addListener(() => {});
@@ -193,6 +204,11 @@ async function run(port, signal) {
   }
   let bridgeError = '';
   while (!signal.aborted) {
+    if (stoppedByUser && isBridgeUrl(url)) {
+      status('Camera stopped from the toolbar. Press Start to turn it back on.');
+      await new Promise((r) => setTimeout(r, RECONNECT_MS));
+      continue;
+    }
     if (isBridgeUrl(url)) {
       // Idempotent: returns at once if the bridge is already running.
       const res = await nativeCommand({ cmd: 'start', facing });
