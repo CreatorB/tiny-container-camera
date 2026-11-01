@@ -2,27 +2,39 @@
 // CORS/CSP) and sends each JPEG frame to the content script over a port.
 'use strict';
 
+// Firefox exposes the WebExtension API as `browser`, Chrome as `chrome`;
+// both return promises in Manifest V3.
+const api = globalThis.browser ?? globalThis.chrome;
+
 const DEFAULT_URL = 'http://127.0.0.1:8765/video';
 const RECONNECT_MS = 2000;
 // Debug builds set this to a local endpoint that collects page logs.
 const LOG_URL = '';
 
-browser.runtime.onMessage.addListener((msg) => {
-  if (msg.type !== 'log') return;
-  console.debug('[tiny-container-camera]', msg.text);
-  if (LOG_URL) fetch(LOG_URL, { method: 'POST', body: msg.text }).catch(() => {});
-});
+// Firefox passes extension messages by structured clone, Chrome as JSON, so
+// in Chrome frames travel as base64 strings instead of ArrayBuffers.
+const IS_FIREFOX = api.runtime.getURL('').startsWith('moz-extension:');
+
+function encodeFrame(buffer) {
+  if (IS_FIREFOX) return buffer;
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
 
 // MV3 host permissions are not always granted at install time (e.g. when
 // installed from a file or by policy), so ask for them on the options page.
 async function hasAccess(url) {
   // Match patterns have no port: http://127.0.0.1/* covers every port.
   const u = new URL(url);
-  return browser.permissions.contains({ origins: [u.protocol + '//' + u.hostname + '/*'] });
+  return api.permissions.contains({ origins: [u.protocol + '//' + u.hostname + '/*'] });
 }
 
-browser.runtime.onInstalled.addListener(async () => {
-  if (!(await hasAccess(DEFAULT_URL))) browser.runtime.openOptionsPage();
+api.runtime.onInstalled.addListener(async () => {
+  if (!(await hasAccess(DEFAULT_URL))) api.runtime.openOptionsPage();
 });
 
 // The ADB camera bridge (camera-bridge/ in the repository) is started through
@@ -39,9 +51,11 @@ function isBridgeUrl(url) {
 
 async function nativeCommand(msg) {
   try {
-    return await browser.runtime.sendNativeMessage(NATIVE_HOST, msg);
+    return await api.runtime.sendNativeMessage(NATIVE_HOST, msg);
   } catch (err) {
-    return { ok: false, error: 'Camera bridge not installed (camera-bridge/install.sh): ' + err.message };
+    // Chrome only lets extension IDs listed by the host manifest connect.
+    const hint = IS_FIREFOX ? '' : ' (extension ID ' + api.runtime.id + ')';
+    return { ok: false, error: 'Camera bridge not installed (camera-bridge/install.sh)' + hint + ': ' + err.message };
   }
 }
 
@@ -49,11 +63,11 @@ async function nativeCommand(msg) {
 // scripts, whose sender.url is the web page they run in. (The prompt window
 // counts as a tab, so sender.tab cannot be used to tell them apart.)
 function fromExtensionPage(sender) {
-  return !!sender.url && sender.url.startsWith(browser.runtime.getURL(''));
+  return !!sender.url && sender.url.startsWith(api.runtime.getURL(''));
 }
 
-// The virtual camera bypasses Firefox's own camera prompt, so every site has
-// to be allowed here first. The site is taken from sender.url, which Firefox
+// The virtual camera bypasses the browser's own camera prompt, so every site has
+// to be allowed here first. The site is taken from sender.url, which the browser
 // sets, never from the message, so a page cannot pretend to be another one.
 function senderOrigin(sender) {
   try {
@@ -66,7 +80,7 @@ function senderOrigin(sender) {
 const prompts = new Map(); // origin -> { promise, resolve, windowId }
 
 async function siteDecision(origin) {
-  const { sites } = await browser.storage.local.get({ sites: {} });
+  const { sites } = await api.storage.local.get({ sites: {} });
   return sites[origin];
 }
 
@@ -79,7 +93,7 @@ async function isAllowed(origin) {
     const promise = new Promise((r) => (resolve = r));
     const entry = { promise, resolve, windowId: null };
     prompts.set(origin, entry);
-    const win = await browser.windows.create({
+    const win = await api.windows.create({
       type: 'popup',
       url: 'prompt.html?origin=' + encodeURIComponent(origin),
       width: 460,
@@ -91,9 +105,9 @@ async function isAllowed(origin) {
 }
 
 async function decide(origin, allow) {
-  const { sites } = await browser.storage.local.get({ sites: {} });
+  const { sites } = await api.storage.local.get({ sites: {} });
   sites[origin] = allow ? 'allow' : 'block';
-  await browser.storage.local.set({ sites });
+  await api.storage.local.set({ sites });
   const entry = prompts.get(origin);
   if (entry) {
     prompts.delete(origin);
@@ -102,7 +116,7 @@ async function decide(origin, allow) {
 }
 
 // Closing the prompt without choosing denies this request only.
-browser.windows.onRemoved.addListener((windowId) => {
+api.windows.onRemoved.addListener((windowId) => {
   for (const [origin, entry] of prompts) {
     if (entry.windowId === windowId) {
       prompts.delete(origin);
@@ -111,7 +125,7 @@ browser.windows.onRemoved.addListener((windowId) => {
   }
 });
 
-browser.runtime.onConnect.addListener((port) => {
+api.runtime.onConnect.addListener((port) => {
   if (port.name !== 'tcc-permission' || fromExtensionPage(port.sender)) return;
   // Keepalive pings while the prompt is open.
   port.onMessage.addListener(() => {});
@@ -124,13 +138,28 @@ browser.runtime.onConnect.addListener((port) => {
   });
 });
 
-browser.runtime.onMessage.addListener((msg, sender) => {
-  if (!fromExtensionPage(sender)) return;
+function handleMessage(msg, sender) {
+  if (msg.type === 'log') {
+    console.debug('[tiny-container-camera]', msg.text);
+    if (LOG_URL) fetch(LOG_URL, { method: 'POST', body: msg.text }).catch(() => {});
+    return undefined;
+  }
+  if (!fromExtensionPage(sender)) return undefined;
   if (msg.type === 'native') return nativeCommand(msg.body);
   if (msg.type === 'permission-decision') return decide(msg.origin, !!msg.allow);
+  return undefined;
+}
+
+// Chrome ignores promises returned from onMessage listeners, so answer with
+// sendResponse (which Firefox supports too).
+api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const result = handleMessage(msg, sender);
+  if (result === undefined) return false;
+  Promise.resolve(result).then(sendResponse, (err) => sendResponse({ ok: false, error: String(err) }));
+  return true;
 });
 
-browser.runtime.onConnect.addListener((port) => {
+api.runtime.onConnect.addListener((port) => {
   if (port.name !== 'tcc-stream') return;
   const ctrl = new AbortController();
   streams++;
@@ -150,16 +179,16 @@ browser.runtime.onConnect.addListener((port) => {
 });
 
 async function stopBridgeIfIdle() {
-  const { url, autoStop } = await browser.storage.local.get({ url: DEFAULT_URL, autoStop: true });
+  const { url, autoStop } = await api.storage.local.get({ url: DEFAULT_URL, autoStop: true });
   if (streams === 0 && autoStop && isBridgeUrl(url)) nativeCommand({ cmd: 'stop' });
 }
 
 async function run(port, signal) {
-  const { url, facing } = await browser.storage.local.get({ url: DEFAULT_URL, facing: 'front' });
+  const { url, facing } = await api.storage.local.get({ url: DEFAULT_URL, facing: 'front' });
   const status = (text) => port.postMessage({ type: 'status', text });
   if (!(await hasAccess(url))) {
     status('No access to ' + new URL(url).host + '. Open the extension options.');
-    browser.runtime.openOptionsPage();
+    api.runtime.openOptionsPage();
     return;
   }
   let bridgeError = '';
@@ -171,7 +200,7 @@ async function run(port, signal) {
     }
     try {
       status(bridgeError || (isBridgeUrl(url) ? 'Starting camera over ADB...' : 'Connecting to ' + url));
-      await readStream(url, signal, (frame) => port.postMessage({ type: 'frame', data: frame }));
+      await readStream(url, signal, (frame) => port.postMessage({ type: 'frame', data: encodeFrame(frame) }));
       status('Stream ended, reconnecting...');
     } catch (err) {
       if (signal.aborted) break;

@@ -1,9 +1,13 @@
 'use strict';
 
+// Firefox exposes the WebExtension API as `browser`, Chrome as `chrome`;
+// both return promises in Manifest V3.
+const api = globalThis.browser ?? globalThis.chrome;
+
 const $ = (id) => document.getElementById(id);
 
 function native(body) {
-  return browser.runtime.sendMessage({ type: 'native', body });
+  return api.runtime.sendMessage({ type: 'native', body });
 }
 
 function say(text) {
@@ -28,7 +32,7 @@ async function refresh() {
   setValue($('camera'), res.running ? 'On (' + res.facing + ')' : 'Off', res.running);
   setValue($('webrtc'), res.webrtcFix
     ? 'Active'
-    : 'Not loaded: calls may fail to connect. Run webrtc-fix/install.sh, then quit Firefox and start it from the app menu.',
+    : 'Not loaded: calls may fail to connect. Run webrtc-fix/install.sh, then quit the browser and start it from the app menu.',
   res.webrtcFix);
 }
 
@@ -52,21 +56,21 @@ $('pair').onclick = () =>
     'Paired. Now connect with the port shown under Wireless debugging.');
 
 $('start').onclick = async () => {
-  await browser.storage.local.set({ facing: $('facing').value });
+  await api.storage.local.set({ facing: $('facing').value });
   run($('start'), { cmd: 'start', facing: $('facing').value }, 'Camera started. Reload the meeting tab if it shows no video.');
 };
 
 $('stop').onclick = () => run($('stop'), { cmd: 'stop' }, 'Camera stopped.');
 
-$('facing').onchange = () => browser.storage.local.set({ facing: $('facing').value });
+$('facing').onchange = () => api.storage.local.set({ facing: $('facing').value });
 
 $('options').onclick = (e) => {
   e.preventDefault();
-  browser.runtime.openOptionsPage();
+  api.runtime.openOptionsPage();
   window.close();
 };
 
-browser.storage.local.get({ facing: 'front' }).then(({ facing }) => {
+api.storage.local.get({ facing: 'front' }).then(({ facing }) => {
   $('facing').value = facing;
 });
 refresh();

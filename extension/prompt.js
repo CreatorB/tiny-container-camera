@@ -1,5 +1,9 @@
 'use strict';
 
+// Firefox exposes the WebExtension API as `browser`, Chrome as `chrome`;
+// both return promises in Manifest V3.
+const api = globalThis.browser ?? globalThis.chrome;
+
 const origin = new URLSearchParams(location.search).get('origin') || '';
 document.getElementById('origin').textContent = origin;
 
@@ -8,7 +12,7 @@ document.getElementById('origin').textContent = origin;
 function decide(allow) {
   let sent;
   try {
-    sent = browser.runtime.sendMessage({ type: 'permission-decision', origin, allow });
+    sent = api.runtime.sendMessage({ type: 'permission-decision', origin, allow });
   } catch (_) {
     sent = Promise.resolve();
   }

@@ -1,0 +1,18 @@
+{
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "tiny-container-camera@creatorb",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  }
+}

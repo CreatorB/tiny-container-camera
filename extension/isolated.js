@@ -2,7 +2,11 @@
 // background script (which fetches the stream) and main.js (the page world).
 'use strict';
 
-// Firefox suspends idle MV3 background scripts after ~30s; messages from the
+// Firefox exposes the WebExtension API as `browser`, Chrome as `chrome`;
+// both return promises in Manifest V3.
+const api = globalThis.browser ?? globalThis.chrome;
+
+// Browsers suspend idle MV3 background scripts after ~30s; messages from the
 // content script count as activity and keep it (and the stream) alive.
 const KEEPALIVE_MS = 10000;
 const RECONNECT_MS = 1000;
@@ -19,7 +23,7 @@ window.addEventListener('message', (e) => {
   if (e.source !== window || !e.data || e.data.__tcc !== 'to-isolated') return;
   if (e.data.type === 'start') start();
   else if (e.data.type === 'stop') stop();
-  else if (e.data.type === 'log') browser.runtime.sendMessage({ type: 'log', text: String(e.data.text) });
+  else if (e.data.type === 'log') api.runtime.sendMessage({ type: 'log', text: String(e.data.text) }).catch(() => {});
   else if (e.data.type === 'permission') askPermission(e.data.id);
 });
 
@@ -27,7 +31,7 @@ window.addEventListener('message', (e) => {
 // a while to answer the prompt, and an idle background script would be
 // suspended, dropping a pending sendMessage reply.
 function askPermission(id) {
-  const p = browser.runtime.connect({ name: 'tcc-permission' });
+  const p = api.runtime.connect({ name: 'tcc-permission' });
   const ping = setInterval(() => p.postMessage({ type: 'ping' }), KEEPALIVE_MS);
   let answered = false;
   const answer = (allowed) => {
@@ -43,6 +47,14 @@ function askPermission(id) {
   p.onDisconnect.addListener(() => answer(false));
 }
 
+// Chrome sends frames as base64 (its extension messaging is JSON-only).
+function decodeFrame(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
 function start() {
   wanted = true;
   connect();
@@ -50,9 +62,12 @@ function start() {
 
 function connect() {
   if (port || !wanted) return;
-  port = browser.runtime.connect({ name: 'tcc-stream' });
+  port = api.runtime.connect({ name: 'tcc-stream' });
   port.onMessage.addListener((msg) => {
-    if (msg.type === 'frame') post({ type: 'frame', data: msg.data }, [msg.data]);
+    if (msg.type === 'frame') {
+      const data = typeof msg.data === 'string' ? decodeFrame(msg.data) : msg.data;
+      post({ type: 'frame', data }, [data]);
+    }
     else if (msg.type === 'status') post({ type: 'status', text: msg.text });
   });
   port.onDisconnect.addListener(() => {

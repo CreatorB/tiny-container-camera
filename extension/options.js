@@ -1,5 +1,9 @@
 'use strict';
 
+// Firefox exposes the WebExtension API as `browser`, Chrome as `chrome`;
+// both return promises in Manifest V3.
+const api = globalThis.browser ?? globalThis.chrome;
+
 const DEFAULT_URL = 'http://127.0.0.1:8765/video';
 const input = document.getElementById('url');
 const access = document.getElementById('access');
@@ -12,7 +16,7 @@ function originPattern(url) {
 }
 
 async function showAccess(url) {
-  const granted = await browser.permissions.contains({ origins: [originPattern(url)] });
+  const granted = await api.permissions.contains({ origins: [originPattern(url)] });
   access.textContent = granted
     ? 'Access to ' + new URL(url).host + ': granted'
     : 'Access to ' + new URL(url).host + ': not granted. Click the button below.';
@@ -20,7 +24,7 @@ async function showAccess(url) {
 }
 
 async function showSites() {
-  const { sites } = await browser.storage.local.get({ sites: {} });
+  const { sites } = await api.storage.local.get({ sites: {} });
   const list = document.getElementById('sites');
   list.textContent = '';
   const origins = Object.keys(sites).sort();
@@ -40,9 +44,9 @@ async function showSites() {
     const remove = document.createElement('button');
     remove.textContent = 'Remove';
     remove.onclick = async () => {
-      const current = (await browser.storage.local.get({ sites: {} })).sites;
+      const current = (await api.storage.local.get({ sites: {} })).sites;
       delete current[origin];
-      await browser.storage.local.set({ sites: current });
+      await api.storage.local.set({ sites: current });
       showSites();
     };
     li.append(label, remove);
@@ -52,7 +56,7 @@ async function showSites() {
 
 showSites();
 
-browser.storage.local.get({ url: DEFAULT_URL }).then(({ url }) => {
+api.storage.local.get({ url: DEFAULT_URL }).then(({ url }) => {
   input.value = url;
   showAccess(url);
 });
@@ -65,12 +69,12 @@ document.getElementById('save').addEventListener('click', async () => {
     msg.textContent = 'Invalid URL.';
     return;
   }
-  const granted = await browser.permissions.request({ origins: [originPattern(url)] });
+  const granted = await api.permissions.request({ origins: [originPattern(url)] });
   await showAccess(url);
   if (!granted) {
     msg.textContent = 'Permission to access ' + new URL(url).origin + ' was denied.';
     return;
   }
-  await browser.storage.local.set({ url });
+  await api.storage.local.set({ url });
   msg.textContent = 'Saved. Reload the meeting tab.';
 });
