@@ -80,8 +80,15 @@ class Camera:
         for tool in ("adb", "ffmpeg"):
             if not shutil.which(tool):
                 sys.exit(f"{tool} not found")
-        if self.adb("get-state").stdout.strip() != "device":
-            sys.exit("no ADB device; connect one first (adb connect HOST:PORT)")
+        if not self.args.serial:
+            # "adb get-state" and friends fail when more than one device is
+            # listed, which happens as soon as an old wireless debugging port
+            # lingers as "offline"; pick the first usable device instead.
+            out = self.adb("devices").stdout.splitlines()[1:]
+            ready = [line.split()[0] for line in out if line.split()[1:2] == ["device"]]
+            if not ready:
+                sys.exit("no ADB device; connect one first (adb connect HOST:PORT)")
+            self.args.serial = ready[0]
 
         r = self.adb("push", server, DEVICE_JAR)
         if r.returncode:
