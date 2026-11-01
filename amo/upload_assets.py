@@ -27,6 +27,12 @@ ICON = os.path.join(ROOT, "extension", "icons", "icon-128.png")
 SCREENSHOTS = [
     ("docs/screenshots/1-meet.jpg", "Google Meet call in Firefox inside Tiny Computer, with video from the tablet camera"),
     ("docs/screenshots/2-camera-check.png", "The virtual camera as seen by a web page, streamed over ADB at 1280x720"),
+    ("docs/screenshots/3-popup-connect.png",
+     "Toolbar button: connect or pair ADB, and check that the WebRTC fix for video calls is active"),
+    ("docs/screenshots/4-popup-camera-on.png",
+     "Start the front or back camera; it also starts by itself when an allowed site asks for it"),
+    ("docs/screenshots/5-popup-camera-stop.png",
+     "Stop turns the device camera off right away and keeps it off until you press Start"),
 ]
 
 

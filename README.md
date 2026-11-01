@@ -69,6 +69,17 @@ calls work.
   <img src="docs/screenshots/2-camera-check.png" alt="Camera check page showing the tablet camera over ADB" width="49%">
 </p>
 
+## Toolbar button
+
+Pin the extension to the toolbar to control the camera without leaving the
+meeting tab.
+
+| | |
+|---|---|
+| <img src="docs/screenshots/3-popup-connect.png" alt="Popup after Connect: ADB device connected, camera off, WebRTC fix active" width="420"> | **Connect.** Finds the device over wireless debugging (or connects to the `HOST:PORT` you type) and shows it under *ADB device*. *Pair a new device* pairs with a 6-digit code the first time. *WebRTC fix* tells whether video calls can connect. |
+| <img src="docs/screenshots/4-popup-camera-on.png" alt="Camera on: the tablet camera streams to the page while the popup shows Camera On (front)" width="420"> | **Start.** The camera also starts by itself when an allowed site asks for it. Choose the front or back camera here. |
+| <img src="docs/screenshots/5-popup-camera-stop.png" alt="Popup after Stop: camera off and Camera stopped message" width="420"> | **Stop.** Turns the device camera off right away, and keeps it off even if a page still holds it, until you press *Start* again. |
+
 ## Tested on
 
 | | |
