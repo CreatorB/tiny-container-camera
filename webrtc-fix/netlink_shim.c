@@ -21,10 +21,14 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <ifaddrs.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
 #define MAX_FDS 4096
+#ifndef IFF_LOWER_UP
+#define IFF_LOWER_UP 0x10000 /* from <linux/if.h>, which clashes with <net/if.h> */
+#endif
 #define MAX_IFS 32
 #define RESP_SIZE 16384
 
@@ -100,6 +104,11 @@ static int list_ifaces(struct iface *out, int max) {
       if (ioctl(s, SIOCGIFINDEX, &r) == 0) f->index = r.ifr_ifindex;
       else f->index = i + 1;
       if (ioctl(s, SIOCGIFFLAGS, &r) == 0) f->flags = (unsigned short)r.ifr_flags;
+      // Android reports active interfaces without IFF_RUNNING, and the ioctl
+      // cannot carry IFF_LOWER_UP; Chrome treats such links as offline and
+      // ignores their addresses. An interface that is up and has an address
+      // here is in use, so report it as running.
+      if (f->flags & IFF_UP) f->flags |= IFF_RUNNING | IFF_LOWER_UP;
       if (ioctl(s, SIOCGIFNETMASK, &r) == 0) f->mask = ((struct sockaddr_in *)&r.ifr_netmask)->sin_addr;
       if (ioctl(s, SIOCGIFMTU, &r) == 0) f->mtu = r.ifr_mtu;
       n++;
@@ -371,4 +380,46 @@ void if_freenameindex(struct if_nameindex *ptr) {
   if (!ptr) return;
   for (struct if_nameindex *p = ptr; p->if_name; p++) free(p->if_name);
   free(ptr);
+}
+
+// glibc's getifaddrs() also talks netlink through an internal socket. Chrome
+// lists local addresses with it, so it is reimplemented with ioctls too.
+struct shim_ifaddrs {
+  struct ifaddrs ifa;
+  char name[IFNAMSIZ];
+  struct sockaddr_in addr, netmask, broadaddr;
+};
+
+int getifaddrs(struct ifaddrs **ifap) {
+  struct iface ifs[MAX_IFS];
+  int n = list_ifaces(ifs, MAX_IFS);
+  struct shim_ifaddrs *all = calloc(n ? n : 1, sizeof(*all));
+  if (!all) return -1;
+  for (int i = 0; i < n; i++) {
+    struct shim_ifaddrs *e = &all[i];
+    memcpy(e->name, ifs[i].name, IFNAMSIZ);
+    e->addr.sin_family = AF_INET;
+    e->addr.sin_addr = ifs[i].addr;
+    e->netmask.sin_family = AF_INET;
+    e->netmask.sin_addr = ifs[i].mask;
+    e->ifa.ifa_name = e->name;
+    e->ifa.ifa_flags = ifs[i].flags;
+    e->ifa.ifa_addr = (struct sockaddr *)&e->addr;
+    e->ifa.ifa_netmask = (struct sockaddr *)&e->netmask;
+    if (ifs[i].flags & IFF_BROADCAST) {
+      e->broadaddr.sin_family = AF_INET;
+      e->broadaddr.sin_addr.s_addr = ifs[i].addr.s_addr | ~ifs[i].mask.s_addr;
+      e->ifa.ifa_broadaddr = (struct sockaddr *)&e->broadaddr;
+    }
+    e->ifa.ifa_next = i + 1 < n ? &all[i + 1].ifa : NULL;
+  }
+  *ifap = n ? &all[0].ifa : NULL;
+  if (!n) free(all);
+  return 0;
+}
+
+// Every entry lives in the single block allocated above, so freeing the
+// first one frees the list.
+void freeifaddrs(struct ifaddrs *ifa) {
+  free(ifa);
 }
